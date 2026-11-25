@@ -1,1 +1,67 @@
 
+name: Build MMT
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:   # 手动触发按钮
+  schedule:
+    - cron: '0 6 * * 1'   # 每周一早上 6 点自动跑一次
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # 装预编译好的 Boost 1.84（静态库），不用自己 b2 编译，省 10 分钟
+      - name: Install Boost 1.84
+        id: install-boost
+        uses: MarkusJx/install-boost@v2.4.1
+        with:
+          boost-version: 1.84.0
+          platform-version: windows
+          toolset: msvc
+          architecture: x64
+
+      # 装好 MSBuild
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      # 用 PowerShell 把 Boost 路径注入到每个 .vcxproj
+      # （仓库里 MMT-Utils / MMT / MMT-Common / MMT-Games 等多个项目都需要 Boost）
+      - name: Patch vcxproj with Boost paths
+        shell: pwsh
+        run: |
+          $boostRoot = "${{ steps.install-boost.outputs.BOOST_ROOT }}"
+          Get-ChildItem -Recurse -Filter *.vcxproj | ForEach-Object {
+            $file = $_.FullName
+            $content = Get-Content $file -Raw
+            # 注入包含目录
+            $content = $content -replace '<IncludePath>(.*?)</IncludePath>', "<IncludePath>`$1;$boostRoot</IncludePath>"
+            # 注入库目录
+            $content = $content -replace '<LibraryPath>(.*?)</LibraryPath>', "<LibraryPath>`$1;$boostRoot\lib64-msvc-14.3</LibraryPath>"
+            Set-Content $file $content
+            Write-Host "Patched: $file"
+          }
+
+      - name: Build MMT.sln (Release x64)
+        run: msbuild MMT.sln /p:Configuration=Release /p:Platform=x64 /m /v:m
+
+      # 把编译产物打包成 Artifact
+      - name: Collect build outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path output -Force
+          Get-ChildItem -Recurse -Include *.dll,*.exe,*.ini,*.txt |
+            Where-Object { $_.FullName -match 'Release' } |
+            Copy-Item -Destination output
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MMT-Community-x64-Release
+          path: output/
+          retention-days: 30
