@@ -19,8 +19,9 @@ jobs:
         with:
           boost_version: 1.84.0
           toolset: msvc
+          platform_version: 2022
           link: static
-          arch: x64
+          arch: x86
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
