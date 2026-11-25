@@ -34,13 +34,17 @@ jobs:
           call bootstrap.bat
           b2 toolset=msvc address-model=64 link=static,shared runtime-link=static,shared define=_CRT_SECURE_NO_WARNINGS -j%NUMBER_OF_PROCESSORS%
 
+      - name: Cache Boost build
+        uses: actions/cache@v4
+        with:
+          path: boost_1_84_0
+          key: boost-1.84-msvc-x64
+
       - name: Patch vcxproj with Boost paths
         shell: pwsh
         run: |
           $boostRoot = "$PWD\boost_1_84_0"
           $boostLib  = "$boostRoot\stage\lib"
-          Write-Host "BOOST_ROOT = $boostRoot"
-          Write-Host "BOOST_LIB  = $boostLib"
           Get-ChildItem -Recurse -Filter *.vcxproj | ForEach-Object {
             $content = Get-Content $_.FullName -Raw
             $content = $content -replace '<IncludePath>(.*?)</IncludePath>', "<IncludePath>`$1;$boostRoot</IncludePath>"
@@ -48,8 +52,11 @@ jobs:
             Set-Content $_.FullName $content
           }
 
-      - name: Build MMT.sln (Release x64)
-        run: msbuild MMT.sln /p:Configuration=Release /p:Platform=x64 /m /v:m
+      - name: Build pass 1 (generate all libs)
+        run: msbuild MMT.sln /p:Configuration=Release /p:Platform=x64 /v:m /m
+
+      - name: Build pass 2 (link exes with libs ready)
+        run: msbuild MMT.sln /p:Configuration=Release /p:Platform=x64 /v:m /m
 
       - name: Collect build outputs
         if: success() || failure()
